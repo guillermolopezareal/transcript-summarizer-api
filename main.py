@@ -18,9 +18,9 @@ def health():
 
 
 @app.post("/analyze", response_model=TranscriptAnalysis)
-def analyze(request: TranscriptRequest):
+async def analyze(request: TranscriptRequest):
     try:
-        result = analyze_transcript(request.transcript, request.chunk_size_words)
+        result = await analyze_transcript(request.transcript, request.chunk_size_words)
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

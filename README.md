@@ -32,7 +32,7 @@ Transcript
    ↓
 Split into overlapping chunks (default: 500 words, 50-word overlap)
    ↓
-Analyze each chunk independently
+Analyze all chunks in parallel (asyncio.gather)
    ↓
 Merge results:
   - Summary    → LLM combines partial summaries into one
@@ -42,6 +42,8 @@ Merge results:
 ```
 
 Short transcripts skip chunking entirely and go through a single LLM call. The `was_chunked` field in the response tells you which path was taken.
+
+Chunk analysis runs with `asyncio.gather` — all chunks are sent to the OpenAI API simultaneously, so total latency equals the slowest single chunk rather than the sum of all of them.
 
 ---
 

@@ -1,11 +1,12 @@
+import asyncio
 import json
-from openai import OpenAI
+from openai import AsyncOpenAI
 from dotenv import load_dotenv
 from models import TranscriptAnalysis, SentimentLevel, RiskLevel
 from chunker import chunk_transcript
 
 load_dotenv()
-client = OpenAI()
+client = AsyncOpenAI()
 
 SYSTEM_PROMPT = """You are an AI analyst specialized in customer support quality assurance.
 
@@ -27,8 +28,8 @@ _SENTIMENT_RANK = {SentimentLevel.negative: 0, SentimentLevel.neutral: 1, Sentim
 _RISK_RANK = {RiskLevel.high: 0, RiskLevel.medium: 1, RiskLevel.low: 2}
 
 
-def _analyze_single(text: str) -> TranscriptAnalysis:
-    response = client.chat.completions.create(
+async def _analyze_single(text: str) -> TranscriptAnalysis:
+    response = await client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
@@ -41,12 +42,10 @@ def _analyze_single(text: str) -> TranscriptAnalysis:
     return TranscriptAnalysis(**data)
 
 
-def _merge_analyses(analyses: list[TranscriptAnalysis]) -> TranscriptAnalysis:
-    # Worst-case sentiment and risk across all chunks
+async def _merge_analyses(analyses: list[TranscriptAnalysis]) -> TranscriptAnalysis:
     sentiment = min(analyses, key=lambda a: _SENTIMENT_RANK[a.sentiment]).sentiment
     risk_level = min(analyses, key=lambda a: _RISK_RANK[a.risk_level]).risk_level
 
-    # Deduplicated union of action items preserving order
     seen: set[str] = set()
     action_items: list[str] = []
     for analysis in analyses:
@@ -55,11 +54,10 @@ def _merge_analyses(analyses: list[TranscriptAnalysis]) -> TranscriptAnalysis:
                 seen.add(item)
                 action_items.append(item)
 
-    # LLM call to produce a single coherent summary from chunk summaries
     partial_summaries = "\n\n".join(
         f"Part {i + 1}: {a.summary}" for i, a in enumerate(analyses)
     )
-    merge_response = client.chat.completions.create(
+    merge_response = await client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[
             {"role": "system", "content": MERGE_SUMMARY_PROMPT},
@@ -77,17 +75,17 @@ def _merge_analyses(analyses: list[TranscriptAnalysis]) -> TranscriptAnalysis:
     )
 
 
-def analyze_transcript(transcript: str, chunk_size_words: int = 500) -> TranscriptAnalysis:
+async def analyze_transcript(transcript: str, chunk_size_words: int = 500) -> TranscriptAnalysis:
     chunks = chunk_transcript(transcript, chunk_size=chunk_size_words)
 
     if len(chunks) == 1:
-        result = _analyze_single(transcript)
+        result = await _analyze_single(transcript)
         result.was_chunked = False
         result.chunks_processed = 1
         return result
 
-    analyses = [_analyze_single(chunk) for chunk in chunks]
-    result = _merge_analyses(analyses)
+    analyses = await asyncio.gather(*[_analyze_single(chunk) for chunk in chunks])
+    result = await _merge_analyses(list(analyses))
     result.was_chunked = True
     result.chunks_processed = len(chunks)
     return result
